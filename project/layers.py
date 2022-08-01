@@ -1,64 +1,55 @@
 import numpy as np
-#from scipy.signal import convolve2d,correlate2d
-#from sklearn.metrics import log_loss
-
-relu = lambda x: np.maximum(x,0,out=x)
 
 class Layer:
-    def __init__(self):
-        pass
-    def slide(self,X):
-        pass
-    def relu(self):
-        pass
+    def slide(self,X,window_shape,s=1):
+        d,h1,w1 = X.shape
+        h2,w2 = window_shape
+        if (h1-h2)%s != 0 or (w1-w2)%s != 0:
+            raise Exception('Invalid dimensions')
+        for i in range(0,h1-h2+1,s):
+            for j in range(0,w1-h2+1,s):
+                yield X[:,i:i+h2,j:j+w2],i//s,j//s
+    def relu(self,X):
+        return np.maximum(X,0)
 
-
-class ConvolutionLayer:
-    def __init__(self,n_kernels,size,xshape):
-        self.kernels = np.random.randn(n_kernels,xshape[0],size,size)
+class ConvolutionLayer(Layer):
+    def __init__(self,n_kernels,n_channels,size,learning_rate=0.1):
+        self.kernels = np.random.randn(n_kernels,n_channels,size,size)
         self.biases = np.random.randn(n_kernels)
-        #self.Z = np.zeros((n_kernels,(xshape[1]-size)+1,(xshape[2]-size)+1))
+        self.learning_rate = learning_rate
     def convolve(self,X1,X2,pad=0,stride=1):
         X1 = np.pad(X1,((0,0),(pad,pad),(pad,pad)))
         d1,h1,w1 = X1.shape
         d2,h2,w2 = X2.shape
-        if d1 != d2 or (h1-h2)%stride != 0 or (w1-w2)%stride != 0:
-            raise Exception('Invalid stride')
-        z = np.zeros(((h1-h2)//stride+1,(w1-w2)//stride+1))
-        for zi in range(len(z)):
-            for zj in range(len(z[zi])):
-                i,j = zi*stride,zj*stride
-                z[zi,zj] = np.sum(X1[:,i:i+h2,j:j+w2] * X2)
-        return z
+        Z = np.zeros(((h1-h2)//stride+1,(w1-w2)//stride+1))
+        for window,i,j in self.slide(X1,(h2,w2),s=stride):
+            Z[i,j] = np.sum(window * X2)
+        return Z
     def forward(self,X):
         self.X = X
         Z = np.stack([self.convolve(X,K) + b for K,b in zip(self.kernels,self.biases)])
-        return relu(Z)
-    def backward(self,dLdZ):#,learning_rate):
-        dLdK = self.convolve(np.repeat(self.X,len(dLdZ),axis=0),dLdZ)
+        return self.relu(Z)
+    def backward(self,dLdZ):
+        dLdK = np.zeros(self.kernels.shape)
         dLdB = np.sum(dLdZ,axis=(1,2))
-        # pad for full convolution
-        dLdX = sum(self.convolve(np.flip(K,axis=(1,2)),dLdZi[None,:],pad=len(dLdZ[0])-1)
-                for K,dLdZi in zip(self.kernels,dLdZ))
-        #self.kernels -= learning_rate * dLdK
-        #self.biases -= learning_rate * dLdB
+        dLdX = np.zeros(self.X.shape)
+        for m in range(len(self.kernels)):
+            dLdK[m] = self.convolve(self.X,dLdZ[m][None,:])
+            dLdX += self.convolve(np.flip(self.kernels[m],axis=(1,2)),dLdZ[m][None,:],pad=len(dLdZ[m])-1)
+        self.kernels -= self.learning_rate * dLdK
+        self.biases -= self.learning_rate * dLdB
         return dLdX
 
-
-class PoolingLayer:
+class PoolingLayer(Layer):
     def __init__(self,size,stride=None):
         self.size = size
         self.stride = stride or size
     def maxpool(self,X):
         d1,h1,w1 = X.shape
         h2,w2 = self.size,self.size
-        if (h1-h2)%self.stride != 0 or (w1-w2)%self.stride != 0:
-            raise Exception('Invalid stride')
         Z = np.zeros((d1,(h1-h2)//self.stride+1,(w1-w2)//self.stride+1))
-        for zi in range(len(Z[0])):
-            for zj in range(len(Z[0][zi])):
-                i,j = zi*self.stride,zj*self.stride
-                Z[:,zi,zj] = np.max(X[:,i:i+h2,j:j+w2],axis=(1,2))
+        for window,i,j in self.slide(X,(h2,w2),s=self.stride):
+            Z[:,i,j] = np.max(window,axis=(1,2))
         return Z
     def avgpool(self,X):
         pass
@@ -67,27 +58,31 @@ class PoolingLayer:
         return self.maxpool(X)
     def backward(self,dLdZ):
         dLdX = np.zeros(self.X.shape)
-        for k in range(len(dLdZ)):
-            for zi in range(len(dLdZ[k])):
-                for zj in range(len(dLdZ[k][zi])):
-                    i,j = zi*self.stride,zj*self.stride
-                    mi,mj = np.unravel_index(np.argmax(self.X[k,i:i+self.size,j:j+self.size]),(self.size,self.size))
-                    dLdX[k,i+mi,j+mj] = dLdZ[k,zi,zj]
+        for window,i,j in self.slide(self.X,(self.size,self.size),s=self.stride):
+            for k in range(len(window)):
+                mi,mj = np.unravel_index(np.argmax(window[k]),(self.size,self.size))
+                dLdX[k,i+mi,j+mj] = dLdZ[k,i,j]
         return dLdX
 
-class DenseLayer:
-    def __init__(self,m,n):
-        self.weights = np.random.uniform(-1,1,(m,n))
-        self.biases = 1
+class DenseLayer(Layer):
+    def __init__(self,m_units,learning_rate=0.1):
+        self.m_units = m_units
+        self.weights = None
+        self.biases = np.random.randn(m_units)
+        self.learning_rate = learning_rate
     def forward(self,X):
         self.xshape = X.shape
         if X.ndim > 1:
             X = X.flatten()
         self.X = X
-        return relu(np.dot(self.weights,X))
+        if self.weights == None:
+            self.weights = np.random.randn(self.m_units,len(X))
+        return self.relu(np.dot(self.weights,X) + self.biases)
     def backward(self,dLdZ):
         dLdB = dLdZ
         dLdW = np.outer(dLdZ,self.X)
         dLdX = np.dot(self.weights.T,dLdZ).reshape(self.xshape)
+        self.weights -= self.learning_rate * dLdW
+        self.biases -= self.learning_rate * dLdB
         return dLdX
 

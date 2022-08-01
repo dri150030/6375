@@ -1,10 +1,20 @@
 import numpy as np
+from functools import reduce
 from layers import ConvolutionLayer,PoolingLayer,DenseLayer
-#from sklearn.metrics import log_loss
 
 class CNN:
-    def __init__(self,convolution_layers=None,dense_layers=(100,),l2_factor=0.1,learning_rate=0.1,batch_size=1):
-        pass
+    def __init__(self,hidden_layers,reg_factor=0.1,learning_rate=0.1):
+        # net = CNN((('c',3,3,3),('p',2),('d',10))) # 3x3x3x3 conv layer, 2x2 pooling layer, 10-neuron dense layer
+        self.net = []
+        for layer in hidden_layers:
+            if layer[0] == 'c':
+                self.net.append(ConvolutionLayer(*layer[1:]))
+            elif layer[0] == 'p':
+                self.net.append(PoolingLayer(*layer[1:]))
+            elif layer[0] == 'd':
+                self.net.append(DenseLayer(*layer[1:]))
+        self.learning_rate = learning_rate
+        self.reg_factor = reg_factor
     def l2reg(self,w):
         return self.l2f * np.sum(w**2)
     def loss(self,P,y):
@@ -14,13 +24,12 @@ class CNN:
         Z = np.exp(Z)
         return Z / np.sum(Z)
     def forward(self,X):
-        self.Z = reduce(self.net)
+        self.Z = reduce(lambda x,unit: unit.forward(x),self.net,X)
         self.P = self.softmax(self.Z)
         self.y_pred = np.argmax(self.P)
-    def backward(self,P,y):
-        dLdZ = np.array([p if i != y else p-1 for i,p in enumerate(P)])
-        return dLdZ
-
+    def backward(self):
+        dLdZ = np.array([p if i != self.y_pred else p-1 for i,p in enumerate(self.P)])
+        dLdX = reduce(lambda dL,unit: unit.backward(dL),reversed(self.net),dLdZ)
     def fit(self,xs,ys):
         if x.ndim == 2:
             pass
