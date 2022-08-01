@@ -27,7 +27,7 @@ class CNN:
             r += self.reg_factor * np.sum(layer.weights**2)
         return r
     def loss(self,P,y):
-        return -np.log(P[y]) + reg_loss() # cross entropy loss = -ln(predicted_probability(true class))
+        return -np.log(P[y]) + self.reg_loss() # cross entropy loss = -ln(predicted_probability(true class))
     def forward(self,X):
         if X.ndim == 2:
             X = X[None,:]
@@ -48,7 +48,14 @@ class CNN:
             self.backward(y)
             self.correct.append(1 if y == self.y_pred else 0)
             self.accuracy.append(sum(self.correct) / 100)
-            print((e,self.accuracy[-1]))
+            if False:
+                print('------------------------------------')
+                print('P: ' + str(self.P))
+                print('ypred,ytrue: ' + str((self.y_pred,y)))
+                print('iter,acc,loss: ' + str((e,self.accuracy[-1],self.loss(self.P,y))))
+                input()
+            elif e%10 == 0:
+                print((e,self.accuracy[-1]))
         return self.accuracy
     def predict(self,X):
         self.forward(X)

@@ -2,13 +2,13 @@ import numpy as np
 
 class Layer:
     def slide(self,X,window_shape,s=1):
-        d,h1,w1 = X.shape
+        h1,w1 = X.shape
         h2,w2 = window_shape
         if (h1-h2)%s != 0 or (w1-w2)%s != 0:
             raise Exception('Invalid dimensions ' + str(X.shape) + ',' + str(window_shape))
         for i in range(0,h1-h2+1,s):
             for j in range(0,w1-h2+1,s):
-                yield X[:,i:i+h2,j:j+w2],i//s,j//s
+                yield X[i:i+h2,j:j+w2],i//s,j//s
     def relu(self,X):
         return np.maximum(X,0)
     def softmax(self,Z):
@@ -26,9 +26,14 @@ class ConvolutionLayer(Layer):
         X1 = np.pad(X1,((0,0),(pad,pad),(pad,pad)))
         d1,h1,w1 = X1.shape
         d2,h2,w2 = X2.shape
+
+        if d1 != d2:
+            raise Exception(str((X1.shape,X2.shape)))
+
         Z = np.zeros(((h1-h2)//stride+1,(w1-w2)//stride+1))
-        for window,i,j in self.slide(X1,(h2,w2),s=stride):
-            Z[i,j] = np.sum(window * X2)
+        for k in range(d1):
+            for window,i,j in self.slide(X1[k],X2[k].shape,s=stride):
+                Z[i,j] = np.sum(window * X2)
         return Z
     def forward(self,X):
         self.X = X
@@ -39,10 +44,14 @@ class ConvolutionLayer(Layer):
         dLdB = np.sum(dLdZ,axis=(1,2))
         dLdX = np.zeros(self.X.shape)
         for m in range(len(self.kernels)):
-            dLdK[m] = self.convolve(self.X,dLdZ[m][None,:])
-            dLdX += self.convolve(np.flip(self.kernels[m],axis=(1,2)),dLdZ[m][None,:],pad=len(dLdZ[m])-1)
-        self.kernels -= self.learning_rate * dLdK + 0.01 * self.weights #reg
+            for c in range(len(self.X)):
+                dLdK[m] += self.convolve(self.X[c][None,:],dLdZ[m][None,:])
+                dLdX[c] += self.convolve(np.flip(self.kernels[m][c])[None,:],dLdZ[m][None,:],pad=len(dLdZ[m])-1)
+        self.kernels -= self.learning_rate * dLdK
         self.biases -= self.learning_rate * dLdB
+
+        if dLdX.shape != self.X.shape:
+            raise Exception(str((dLdX.shape,self.X.shape)))
         return dLdX
 
 class PoolingLayer(Layer):
@@ -54,8 +63,9 @@ class PoolingLayer(Layer):
         d1,h1,w1 = X.shape
         h2,w2 = self.size,self.size
         Z = np.zeros((d1,(h1-h2)//self.stride+1,(w1-w2)//self.stride+1))
-        for window,i,j in self.slide(X,(h2,w2),s=self.stride):
-            Z[:,i,j] = np.max(window,axis=(1,2))
+        for k in range(d1):
+            for window,i,j in self.slide(X[k],(h2,w2),s=self.stride):
+                Z[k,i,j] = np.max(window)
         return Z
     def avgpool(self,X):
         pass
@@ -64,10 +74,13 @@ class PoolingLayer(Layer):
         return self.maxpool(X)
     def backward(self,dLdZ):
         dLdX = np.zeros(self.X.shape)
-        for window,i,j in self.slide(self.X,(self.size,self.size),s=self.stride):
-            for k in range(len(window)):
-                mi,mj = np.unravel_index(np.argmax(window[k]),(self.size,self.size))
+        for k in range(self.X.shape[0]):
+            for window,i,j in self.slide(self.X[k],(self.size,self.size),s=self.stride):
+                mi,mj = np.unravel_index(np.argmax(window),(self.size,self.size))
                 dLdX[k,i+mi,j+mj] = dLdZ[k,i,j]
+
+        if dLdX.shape != self.X.shape:
+            raise Exception(str((dLdX.shape,self.X.shape)))
         return dLdX
 
 class DenseLayer(Layer):
@@ -78,18 +91,20 @@ class DenseLayer(Layer):
         self.activation = self.relu
         self.learning_rate = learning_rate
     def forward(self,X):
-        self.xshape = X.shape
+        self.X = X
         if X.ndim > 1:
             X = X.flatten()
-        self.X = X
         if self.weights is None:
             self.weights = np.random.randn(self.m_units,len(X))
         return self.activation(np.dot(self.weights,X) + self.biases)
     def backward(self,dLdZ):
         dLdB = dLdZ
         dLdW = np.outer(dLdZ,self.X)
-        dLdX = np.dot(self.weights.T,dLdZ).reshape(self.xshape)
-        self.weights -= self.learning_rate * dLdW + 0.01 * self.weights #reg
+        dLdX = np.dot(self.weights.T,dLdZ).reshape(self.X.shape)
+        self.weights -= self.learning_rate * dLdW
         self.biases -= self.learning_rate * dLdB
+
+        if dLdX.shape != self.X.shape:
+            raise Exception(str((dLdX.shape,self.X.shape)))
         return dLdX
 

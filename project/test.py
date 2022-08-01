@@ -13,7 +13,8 @@ xs = np.reshape(StandardScaler().fit_transform(np.reshape(xs,(-1,len(xs)))),xs.s
 chars = [chr(ord('A')+i) for i in range(26)]
 
 net = CNN((('c',16,1,3),('p',2),('d',26)),
-        labels=chars,max_iter=50000,learning_rate=0.1)
+        labels=chars,max_iter=10000,learning_rate=0.01)
+
 accuracy = net.fit(xs,ys)
 
 print(net.predict(xs[23489]))
