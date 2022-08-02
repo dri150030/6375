@@ -63,7 +63,12 @@ class CNN:
                 print('ypred,ytrue: ' + str((self.y_pred,y)))
                 print('iter,acc,loss: ' + str((e,self.accuracy[-1],sum(self.err)/100)))
                 input()
-            elif e%10 == 0:
+            elif e%100 == 0:
+                #print(np.max(self.net[0].kernels,axis=(1,2,3)))
+                #print(np.max(self.net[-1].weights,axis=1))
+                print(np.max(self.net[0].dz))
+                print(np.max(self.net[-2].dz))
+                print(np.max(self.net[-1].dz))
                 print('iter,acc,loss: ' + str((e,self.accuracy[-1],sum(self.err)/100)))
                 if False and self.err[-1] > 10:
                     for layer in self.net:

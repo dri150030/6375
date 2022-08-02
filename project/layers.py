@@ -29,7 +29,7 @@ class ConvolutionLayer(Layer):
         self.momentum_factor = momentum_factor
         self.clip_threshold = clip_threshold
         self.init_factor = init_factor
-        self.velocity = 0
+        self.vK,self.vB = 0,0
     def convolve(self,X1,X2,pad=0,stride=1):
         X1 = np.pad(X1,((pad,pad),(pad,pad)))
         h1,w1 = X1.shape
@@ -58,14 +58,17 @@ class ConvolutionLayer(Layer):
                 dLdK[m] += self.convolve(self.X[c],dLdZ[m])
                 dLdX[c] += self.convolve(dLdZ[m],np.flip(self.kernels[m][c]),pad=len(self.kernels[m][c])-1)
 
-        if np.max(abs(dLdK)) >= self.clip_threshold:
-            dLdK = (self.clip_threshold / np.max(abs(dLdK))) * dLdK
+       # if np.max(abs(dLdK)) >= self.clip_threshold:
+            #dLdK = (self.clip_threshold / np.max(abs(dLdK))) * dLdK
 
-        self.velocity = self.velocity * self.momentum_factor - self.learning_rate * dLdK
+        self.dz = dLdZ #
+
+        self.vK = self.momentum_factor * self.vK + (1-self.momentum_factor) * dLdK
+        self.vB = self.momentum_factor * self.vB + (1-self.momentum_factor) * dLdB
         #self.kernels -= self.learning_rate * dLdK #- self.reg_factor * self.kernels
         #self.biases -= self.learning_rate * dLdB
-        self.kernels += self.velocity - self.reg_factor * self.kernels
-        self.biases += -self.learning_rate * dLdB
+        self.kernels -= self.learning_rate * self.vK - self.reg_factor * self.kernels
+        self.biases -= self.learning_rate * self.vB
         
         return dLdX * (self.X != 0)
 
@@ -88,6 +91,7 @@ class PoolingLayer(Layer):
         self.X = X
         return self.maxpool(X)
     def backward(self,dLdZ):
+        self.dz = dLdZ #
         dLdX = np.zeros(self.X.shape)
         for k in range(self.X.shape[0]):
             for window,i,zi,j,zj in self.slide(self.X[k],(self.size,self.size),s=self.stride):
@@ -107,7 +111,7 @@ class DenseLayer(Layer):
         self.momentum_factor = momentum_factor
         self.clip_threshold = clip_threshold
         self.init_factor = init_factor
-        self.velocity = 0
+        self.vW,self.vB = 0,0
     def forward(self,X):
         self.X = X
         if X.ndim > 1:
@@ -122,18 +126,24 @@ class DenseLayer(Layer):
         dLdB = dLdZ
         dLdW = np.outer(dLdZ,self.X.flatten())
 
+        self.dz = dLdZ #
+
         dLdX = np.dot(self.weights.T,dLdZ).reshape(self.X.shape)
 
-        if np.max(abs(dLdW)) >= self.clip_threshold:
-            dLdW = (self.clip_threshold / np.max(abs(dLdW))) * dLdW
+        #if np.max(abs(dLdW)) >= self.clip_threshold:
+            #dLdW = (self.clip_threshold / np.max(abs(dLdW))) * dLdW
 
 
-        self.velocity = self.velocity * self.momentum_factor - self.learning_rate * dLdW
+        #self.velocity = self.velocity * self.momentum_factor - self.learning_rate * dLdW
         #self.weights -= self.learning_rate * dLdW #- self.reg_factor * self.weights
         #self.biases -= self.learning_rate * dLdB
-        self.weights += self.velocity - self.reg_factor * self.weights
-        self.biases += -self.learning_rate * dLdB
+        #self.weights += self.velocity - self.reg_factor * self.weights
+        #self.biases += -self.learning_rate * dLdB
 
+        self.vW = self.momentum_factor * self.vW + (1-self.momentum_factor) * dLdW
+        self.vB = self.momentum_factor * self.vB + (1-self.momentum_factor) * dLdB
+        self.weights -= self.learning_rate * self.vW - self.reg_factor * self.weights
+        self.biases -= self.learning_rate * self.vB
 
         return dLdX * (self.X != 0)
 

@@ -12,8 +12,8 @@ xs = np.reshape(StandardScaler().fit_transform(np.reshape(xs,(-1,len(xs)))),xs.s
 
 chars = [chr(ord('A')+i) for i in range(26)]
 
-net = CNN((('c',16,1,5),('p',2),('d',26)),
-        labels=chars,max_iter=3000,learning_rate=0.003,reg_factor=0.00001,momentum_factor=0.9,clip_threshold=3,init_factor=0.001)
+net = CNN((('c',6,1,5),('p',2),('c',16,6,5),('p',2),('d',128),('d',26)),
+        labels=chars,max_iter=5000,learning_rate=0.01,reg_factor=0.0001,momentum_factor=0.9,clip_threshold=10,init_factor=1)
 
 accuracy = net.fit(xs,ys)
 
